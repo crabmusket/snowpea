@@ -7,15 +7,16 @@ executable          snowpea
     hs-source-dirs: src
     main-is:        Main.hs
     ghc-options:    -Wall -threaded -O2 -rtsopts -with-rtsopts=-N
-    build-depends:  base   >= 4      && < 5
+    build-depends:  base >= 4 && < 5
                   , aeson
                   , base64-bytestring
                   , bytestring
                   , containers
                   , data-default
+                  , http-types
                   , interpolatedstring-perl6
                   , jwt
-                  , scotty
                   , string-conversions
                   , text
                   , wai
+                  , warp

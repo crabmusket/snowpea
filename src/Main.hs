@@ -1,37 +1,147 @@
-{-# LANGUAGE FlexibleContexts, OverloadedStrings, QuasiQuotes, RecordWildCards, DeriveGeneric #-}
 
-import Web.Scotty
+{-# LANGUAGE FlexibleContexts, OverloadedStrings, QuasiQuotes, RecordWildCards, DeriveGeneric #-}
 import System.Environment (lookupEnv)
-import Data.Maybe (maybe)
-import Text.Read (readMaybe)
 import Data.Monoid ((<>))
 import Control.Monad (join)
-import Data.Text (unpack)
-import Data.Text.Lazy (pack)
-import Data.Text.Encoding (decodeUtf8)
+import Data.Text (Text)
+import Data.ByteString (ByteString)
 import Text.InterpolatedString.Perl6 (qc)
-import Data.String.Conversions (cs)
+import Data.String.Conversions (ConvertibleStrings, cs)
 import GHC.Generics (Generic)
+import Data.String (IsString, fromString)
+import qualified Data.Text.Lazy as LT
 import qualified Data.Text.Lazy.Encoding as LT
+import qualified Data.Text as Text
+import qualified Text.Read as Text
+--import qualified Data.Text.Encoding as Text
 import qualified Data.Default as Default
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64 as Base64
 import qualified Data.ByteString.Lazy as LBS
 import qualified Network.Wai as Wai
+import qualified Network.Wai.Handler.Warp as Warp
 import qualified Web.JWT as JWT
 import qualified Data.Map.Strict as Map
 import qualified Data.Aeson as Json
+import qualified Network.HTTP.Types as Http
+import qualified Network.HTTP.Types.Header as Http
+import qualified Network.HTTP.Types.Status as Http
 
 main :: IO ()
 main = do
-  username <- readEnvUnsafe "USERNAME"
-  password <- readEnvUnsafe "PASSWORD"
-  secret <- fmap JWT.secret (readEnvUnsafe "SECRET")
+  username <- readEnvUnsafe "USERNAME" :: IO ByteString
+  password <- readEnvUnsafe "PASSWORD" :: IO ByteString
+  --secret <- fmap JWT.secret (readEnvUnsafe "SECRET")
   port <- readEnvWithDefault "PORT" 3000
+  let
+    app :: Wai.Application
+    app request respond = case Wai.pathInfo request of
+      [] -> showIndex request respond
+      ["feeds", pod] -> getPodcastFeed username password pod request respond
+      ["feeds", pod, "eps", ep] -> getPodcastEpisode pod ep request respond
+      _otherwise -> handleNotFound request respond
+  putStrLn ("running on port " <> show port)
+  Warp.run port app
 
-  scotty port $ do
-    get "/" $ do
-      text "nothing to see here"
+showIndex :: Wai.Application
+showIndex _ respond = respond (Wai.responseLBS Http.status200 [] "nothing to see here")
 
+getPodcastFeed :: ByteString -> ByteString -> Text -> Wai.Application
+getPodcastFeed username password podcastId request respond = do
+  authenticated <- isAuthenticated username password request
+  maybeInfo <- getPodcastInfo podcastId
+  case (authenticated, maybeInfo) of
+    (False, _) -> respond errorNotAuthenticated
+    (_, Nothing) -> respond errorBadRequest
+    (True, Just info) -> do
+      let host = Wai.requestHeaderHost request `withDefault` "localhost:3000"
+      let scheme = if Wai.isSecure request then "https://" else "http://"
+      respond $ response Http.status200 (scheme <> host <> " " <> cs podcastId)
+      {-
+      setHeader "content-type" "application/atom+xml"
+      text $ pack $ renderFeed (tokenMaker secret) podcastId (cs $ scheme <> host) info
+      -}
+
+getPodcastEpisode :: Text -> Text -> Wai.Application
+getPodcastEpisode podcastId episodeId request respond = respond (Wai.responseLBS Http.status200 [] "nothing to see here")
+
+handleNotFound :: Wai.Application
+handleNotFound _ respond = respond (Wai.responseLBS Http.status404 [] "not found")
+
+errorNotAuthenticated :: Wai.Response
+errorNotAuthenticated = Wai.responseLBS (toEnum 401) [] "invalid authentication"
+
+errorBadRequest :: Wai.Response
+errorBadRequest = Wai.responseLBS (toEnum 400) [] "bad request"
+
+isAuthenticated :: ByteString -> ByteString -> Wai.Request -> IO Bool
+isAuthenticated username password request = do
+  let
+    maybeAuth = header request "Authorization"
+    desired = "Basic " <> Base64.encode (username <> ":" <> password)
+  case maybeAuth of
+    Nothing -> return False
+    Just auth -> return (cs auth == desired)
+
+header :: Wai.Request -> Http.HeaderName -> Maybe ByteString
+header request name = lookup name (Wai.requestHeaders request)
+
+readEnvUnsafe :: IsString a => String -> IO a
+readEnvUnsafe variable = do
+  maybeVal <- lookupEnv variable
+  case maybeVal of
+    Nothing -> error $ "please provide environment variable " <> variable
+    Just value -> return (fromString value)
+
+readEnvWithDefault :: Read a => String -> a -> IO a
+readEnvWithDefault variable defaultValue = do
+  maybeValue <- lookupEnv variable
+  let parsed = join (fmap Text.readMaybe maybeValue)
+  return (parsed `withDefault` defaultValue)
+
+withDefault :: Maybe a -> a -> a
+maybeVal `withDefault` def = case maybeVal of
+  Nothing -> def
+  Just val -> val
+
+response :: ConvertibleStrings a LBS.ByteString => Http.Status -> a -> Wai.Response
+response status content = Wai.responseLBS status [] (cs content)
+
+data PodcastInfo
+  = PodcastInfo
+    { name :: String
+    , description :: String
+    , summary :: String
+    , image :: String
+    , link :: String
+    , feed_published :: String
+    , keywords :: String
+    , email :: String
+    , author :: String
+    , episodes :: [PodcastEpisode]
+    } deriving (Show, Generic)
+
+data PodcastEpisode
+  = PodcastEpisode
+    { index :: Int
+    , title :: String
+    , notes :: String
+    , published :: String
+    , duration :: String
+    , size :: Int
+    } deriving (Show, Generic)
+
+instance Json.FromJSON PodcastInfo
+instance Json.FromJSON PodcastEpisode
+
+getPodcastInfo :: Text -> IO (Maybe PodcastInfo)
+getPodcastInfo podcastId = do
+  contents <- LBS.readFile (cs podcastId <> ".json")
+  case Json.eitherDecode contents of
+    Left err -> return Nothing
+    Right value -> return (Just value)
+
+{-
     get "/feeds/:pod" $ do
       pod <- param "pod"
       authenticated <- checkBasicAuth username password
@@ -134,18 +244,6 @@ verifyEpisodeToken secret rawToken pod episode =
     Nothing -> False
     Just token -> claimsAreValid (getClaims token)
 
-readEnvUnsafe variable = do
-  maybeVal <- lookupEnv variable
-  case maybeVal of
-    Nothing -> error $ "please provide environment variable " <> variable
-    Just value -> return (cs value)
-
-readEnvWithDefault :: Read a => String -> a -> IO a
-readEnvWithDefault variable def = do
-  maybeVal <- lookupEnv variable
-  let parsed = join $ fmap readMaybe maybeVal
-  return $ maybe def id parsed
-
 renderFeed makeToken pod host (PodcastInfo{..}) = [qc|<?xml version="1.0" encoding="UTF-8"?>
 <?xml-stylesheet type="text/xsl" media="screen" href="/~d/styles/rss2enclosuresfull.xsl"?>
 <?xml-stylesheet type="text/css" media="screen" href="http://feeds.feedburner.com/~d/styles/itemcontent.css"?>
@@ -208,3 +306,4 @@ tokenMaker secret pod index = JWT.encodeSigned JWT.HS256 secret $ Default.def {
       , ("ep", Json.String (cs $ show index))
       ]
   }
+-}
