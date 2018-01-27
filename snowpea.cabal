@@ -7,10 +7,14 @@ executable          snowpea
     hs-source-dirs: src
     main-is:        Main.hs
     ghc-options:    -Wall -threaded -O2 -rtsopts -with-rtsopts=-N
+    other-modules:  Framework
+                  , Podcast
+                  , Server
     build-depends:  base >= 4 && < 5
                   , aeson
                   , base64-bytestring
                   , bytestring
+                  , case-insensitive
                   , containers
                   , data-default
                   , http-types
