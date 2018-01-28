@@ -10,6 +10,7 @@ executable          snowpea
     other-modules:  Framework
                   , Podcast
                   , Server
+                  , Utils
     build-depends:  base >= 4 && < 5
                   , aeson
                   , base64-bytestring
@@ -23,4 +24,5 @@ executable          snowpea
                   , string-conversions
                   , text
                   , wai
+                  , wai-extra
                   , warp

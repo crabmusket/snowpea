@@ -1,11 +1,11 @@
 module Main where
 
-import System.Environment (getArgs)
 import Data.Monoid ((<>))
-import qualified Network.Wai.Handler.Warp as Warp
+import System.Environment (getArgs)
+import Network.Wai.Handler.Warp (run)
 
 import Server (makeApp)
-import Framework (readEnvWithDefault)
+import Utils (readEnvWithDefault)
 
 main :: IO ()
 main = do
@@ -15,6 +15,6 @@ main = do
       port <- readEnvWithDefault 3000 "PORT"
       app <- makeApp
       putStrLn ("running on port " <> show port)
-      Warp.run port app
+      run port app
     _otherwise -> do
       putStrLn "please specify something"

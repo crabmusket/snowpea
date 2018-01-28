@@ -2,14 +2,15 @@
 
 module Podcast where
 
-import qualified Data.Aeson as Json
-import GHC.Generics (Generic)
-import Data.Monoid ((<>))
 import Data.ByteString (ByteString)
-import Data.Text (Text)
-import qualified Web.JWT as JWT
+import Data.Monoid ((<>))
 import Data.String.Conversions (cs)
+import Data.Text (Text)
+import GHC.Generics (Generic)
 import Text.InterpolatedString.Perl6 (qc)
+
+import qualified Data.Aeson as JOSN
+import qualified Web.JWT as JWT
 
 data PodcastInfo
   = PodcastInfo
@@ -35,8 +36,8 @@ data PodcastEpisode
     , size :: Int
     } deriving (Show, Generic)
 
-instance Json.FromJSON PodcastInfo
-instance Json.FromJSON PodcastEpisode
+instance JOSN.FromJSON PodcastInfo
+instance JOSN.FromJSON PodcastEpisode
 
 type TokenFactory = Text -> Int -> JWT.JSON
 
@@ -73,7 +74,7 @@ renderFeed makeToken basePath podcastId (PodcastInfo{..}) = [qc|<?xml version="1
 
     <itunes:keywords>{keywords}</itunes:keywords>
 
-    <atom10:link xmlns:atom10="http://www.w3.org/2005/Atom" rel="self" type="application/rss+xml" href="{basePath}/feeds/{podcastId}" />
+    <atom10:link xmlns:atom10="http://www.w3.org/2005/Atom" rel="self" type="application/rss+xml" href="{basePath}/podcasts/{podcastId}/feed" />
 
     {items}
   </channel>
@@ -92,5 +93,5 @@ renderEpisode makeToken basePath podcastId (PodcastEpisode{..}) = [qc|
       <itunes:duration>{duration}</itunes:duration>
     </item>|]
   where
-    url = cs basePath <> "/feeds/" <> cs podcastId <> "/episodes/" <> show index
+    url = cs basePath <> "/podcasts/" <> cs podcastId <> "/episodes/" <> show index <> "/download"
     token = makeToken podcastId index
